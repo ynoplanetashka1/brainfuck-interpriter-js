@@ -17,6 +17,8 @@ function searchForCloseBrackets(str, openBrackets, closeBrackets, fromIndex) {
 
 		currentIndex++;
 	}
+
+	throw new Error('terminated brackets not found.');
 }
 
 class PromptSyncInputAdapter
@@ -28,7 +30,14 @@ class PromptSyncInputAdapter
 	}
 }
 
-const promptSyncInputAdapter = new PromptSyncInputAdapter();
+class ConsoleExportAdapter
+{
+	constructor() {}
+
+	print(val) {
+		console.log(val);
+	}
+}
 
 class bytesArray
 {
@@ -44,8 +53,8 @@ class bytesArray
 						return 0;
 					}
 				},
-				set(..._args) {
-					Reflect.set(..._args);
+				set(innerObject, property_, value_) {
+					Reflect.set(innerObject, property_, ( (value_ % 256) + 256 ) % 256 );
 				}
 			}
 		)
@@ -55,19 +64,28 @@ class bytesArray
 
 class bfStream
 {
-	constructor(bfCode, inputStream = promptSyncInputAdapter) {
+	constructor(bfCode, paramsObj) {
+		var defaultParams = {
+			inputStream: new PromptSyncInputAdapter(),
+			exportStream: new ConsoleExportAdapter()
+		}
+		paramsObj = new Object(paramsObj);
+		paramsObj = Object.assign(defaultParams, paramsObj);
+
 		this[bfStream.innerCodeSymbol] = bfCode;
 		this[bfStream.innerCodeIndexSymbol] = 0;
 		this.bytesArray = bytesArray.create();
 		this.currentIndex = 0;
 		this.openBracketsIndexesArray = new Array;
-		this.inputStream = inputStream;
+		this.inputStream = paramsObj.inputStream;
+		this.exportStream = paramsObj.exportStream;
 	}
 
 	invokeCommand() {
 		if (this[bfStream.innerCodeSymbol][this[bfStream.innerCodeIndexSymbol]] in commandsList)
 			commandsList[this[bfStream.innerCodeSymbol][this[bfStream.innerCodeIndexSymbol]]].call(this);
-		this[bfStream.innerCodeIndexSymbol]++;
+		else
+			this[bfStream.innerCodeIndexSymbol]++;
 	}
 
 	runProgram() {
@@ -84,35 +102,39 @@ Object.defineProperty(bfStream, 'invokeCommand+',
 	{ value: function()
 		{
 			this.bytesArray[this.currentIndex]++;
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand-',
 	{ value: function()
 		{
 			this.bytesArray[this.currentIndex]--;
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand>',
 	{ value: function()
 		{
 			this.currentIndex++;
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand<',
 	{ value: function()
 		{
 			this.currentIndex--;
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand[',
 	{ value: function()
 		{
 			if (this.bytesArray[this.currentIndex] === 0) {
-				this.currentIndex = searchForCloseBrackets(this[bfStream.innerCodeSymbol], '[', ']', this[bfStream.innerCodeIndexSymbol] + 1) + 1;
+				this[bfStream.innerCodeIndexSymbol] = searchForCloseBrackets(this[bfStream.innerCodeSymbol], '[', ']', this[bfStream.innerCodeIndexSymbol] + 1) + 1;
 				return;
 			}
-			this.openBracketsIndexesArray.push(this.currentIndex);
-			this.currentIndex++;
+			this.openBracketsIndexesArray.push(this[bfStream.innerCodeIndexSymbol]);
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand]',
@@ -120,17 +142,19 @@ Object.defineProperty(bfStream, 'invokeCommand]',
 		{
 			if (this.bytesArray[this.currentIndex] === 0) {
 				this.openBracketsIndexesArray.pop();
-				this.currentIndex++;
+				this[bfStream.innerCodeIndexSymbol]++;
 				return;
 			}
 
-			this.currentIndex = this.openBracketsIndexesArray[this.openBracketsIndexesArray.length - 1] - 1;
+			this[bfStream.innerCodeIndexSymbol] = this.openBracketsIndexesArray[this.openBracketsIndexesArray.length - 1] + 1;
 		}
 			, writable: false });
 Object.defineProperty(bfStream, 'invokeCommand.',
 	{ value: function()
 		{
-			console.log(String.fromCharCode(this.bytesArray[this.currentIndex]));
+			// this.exportStream.print(String.fromCharCode(this.bytesArray[this.currentIndex]));
+			this.exportStream.print(this.bytesArray[this.currentIndex]);
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 
@@ -138,6 +162,7 @@ Object.defineProperty(bfStream, 'invokeCommand,',
 	{ value: function()
 		{
 			this.bytesArray[this.currentIndex] = this.inputStream.getCharacter();
+			this[bfStream.innerCodeIndexSymbol]++;
 		}
 			, writable: false });
 
@@ -154,5 +179,43 @@ commandsList[','] = bfStream['invokeCommand,'];
 
 //tests
 
-const bf = new bfStream(',>,<.>.');
+const bf = new bfStream(
+`
+set first cell to minus 1
+-
+>>>
+
+achive 48 if current and next cells are zero
+
++++ +++
+[
+> +++ +++ ++
+<-
+]
+
+>
+[
+-<+>
+] <->
+
+get user input and transform it to corresponding index
+
+,
+<
+[
+->-<
+]
+>-
+
+<---> set stational point
+
+next goes cells
+[->>>[>>>]--  ---[+++[<<<]---]+++ >]
+
+reset settled flags
+>>>[++>>>]
+---[+++[<<<]---]+++ >
+`
+	);
 bf.runProgram();
+// (new bfStream(`+[[.-].]`)).runProgram();
